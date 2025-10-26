@@ -24,6 +24,36 @@ class MLPPlanner(nn.Module):
         self.n_track = n_track
         self.n_waypoints = n_waypoints
 
+        # Claude Sonnet 4.5
+
+        # Calculate input and output dimensions
+        # Input: 2 tracks (left + right) * n_track points * 2 coordinates (x, y)
+        input_size = 2 * n_track * 2  # = 40 for default n_track=10
+        
+        # Output: n_waypoints * 2 coordinates (x, y)
+        output_size = n_waypoints * 2  # = 6 for default n_waypoints=3
+        
+        # Define the MLP architecture
+        hidden_size = 256
+        
+        # Claude came up with 4 but i can put more if i want
+        self.network = nn.Sequential(
+            # First hidden layer
+            nn.Linear(input_size, hidden_size),
+            nn.ReLU(),
+            
+            # Second hidden layer
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            
+            # Third hidden layer
+            nn.Linear(hidden_size, 128),
+            nn.ReLU(),
+            
+            # Output layer (no activation - regression task)
+            nn.Linear(128, output_size)
+        )
+
     def forward(
         self,
         track_left: torch.Tensor,
@@ -43,7 +73,28 @@ class MLPPlanner(nn.Module):
         Returns:
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
-        raise NotImplementedError
+        # Claude Sonnet 4.5
+
+        # Get batch size
+        B = track_left.shape[0]
+        
+        # Concatenate left and right tracks along the track dimension
+        # (B, n_track, 2) + (B, n_track, 2) -> (B, 2*n_track, 2)
+        x = torch.cat([track_left, track_right], dim=1)
+        
+        # Flatten the track points into a single feature vector
+        # (B, 2*n_track, 2) -> (B, 2*n_track*2)
+        x = x.view(B, -1)
+        
+        # Pass through the MLP network
+        # (B, 40) -> (B, 6)
+        x = self.network(x)
+        
+        # Reshape output to waypoint format
+        # (B, n_waypoints*2) -> (B, n_waypoints, 2)
+        waypoints = x.view(B, self.n_waypoints, 2)
+        
+        return waypoints
 
 
 class TransformerPlanner(nn.Module):

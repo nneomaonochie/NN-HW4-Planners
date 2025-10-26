@@ -12,7 +12,7 @@ import torch.utils.tensorboard as tb
 
 import torch.optim
 
-from .models import ClassificationLoss, load_model, save_model
+from .models import load_model, save_model
 from .utils import load_data
 
 
@@ -48,7 +48,7 @@ def train(
     val_data = load_data("data/val", shuffle=False)
 
     # create loss function and optimizer
-    loss_func = ClassificationLoss()
+    loss_func = nn.RMSELoss()
     optimizer = torch.optim.SGD(model.parameters(), lr, momentum=0.9)
 
     global_step = 0
