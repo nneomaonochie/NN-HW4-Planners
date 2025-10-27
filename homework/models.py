@@ -8,6 +8,7 @@ INPUT_MEAN = [0.2788, 0.2657, 0.2629]
 INPUT_STD = [0.2064, 0.1944, 0.2252]
 
 
+# THIS IS CLAUDE SONNET'S 4.5 VER 
 class MLPPlanner(nn.Module):
     def __init__(
         self,
@@ -38,19 +39,14 @@ class MLPPlanner(nn.Module):
         
         # Claude came up with 4 but i can put more if i want
         self.network = nn.Sequential(
-            # First hidden layer
-            nn.Linear(input_size, hidden_size),
+            nn.Linear(input_size, 512),
             nn.ReLU(),
-            
-            # Second hidden layer
-            nn.Linear(hidden_size, hidden_size),
+            nn.Linear(512, 512),
             nn.ReLU(),
-            
-            # Third hidden layer
-            nn.Linear(hidden_size, 128),
+            nn.Linear(512, 256),
             nn.ReLU(),
-            
-            # Output layer (no activation - regression task)
+            nn.Linear(256, 128),
+            nn.ReLU(),
             nn.Linear(128, output_size)
         )
 

@@ -38,7 +38,7 @@ def train(
     lr: float = 1e-3,
     batch_size: int = 128,
     seed: int = 2024,
-    patience: int = 15,  # Early stopping patience
+    patience: int = 18,  # Early stopping patience
     **kwargs,
 ):
     if torch.cuda.is_available():
@@ -74,9 +74,9 @@ def train(
         num_workers=2
     )
 
-    # create loss function and optimizer
-    loss_func = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    # create loss function and optimizer - USE MSE NOT RMSE
+    loss_func = nn.L1Loss()#nn.MSELoss()#RMSELoss()#
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)#optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     
     # Cosine Annealing Learning Rate Scheduler
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -85,9 +85,10 @@ def train(
         eta_min=1e-6      # Minimum learning rate
     )
 
-    # Early stopping variables
+    # Early stopping variables - track BOTH errors
     best_val_loss = float('inf')
     best_lateral_error = float('inf')
+    best_longitudinal_error = float('inf')
     patience_counter = 0
     best_model_state = None
 
@@ -175,11 +176,12 @@ def train(
         # Early stopping logic - track lateral error since that's your main concern
         if epoch_lat_error < best_lateral_error:
             best_lateral_error = epoch_lat_error
+            best_longitudinal_error = epoch_long_error  # FIXED: Track longitudinal too
             best_val_loss = epoch_val_loss
             patience_counter = 0
             # Save best model state
             best_model_state = model.state_dict().copy()
-            print(f"✓ New best lateral error: {best_lateral_error:.4f}")
+            print(f"New best lateral error: {best_lateral_error:.4f}")
         else:
             patience_counter += 1
 
@@ -197,7 +199,7 @@ def train(
 
         # Check early stopping
         if patience_counter >= patience:
-            print(f"\n⚠ Early stopping triggered after {epoch + 1} epochs")
+            print(f"\nEarly stopping triggered after {epoch + 1} epochs")
             print(f"Best lateral error: {best_lateral_error:.4f}")
             break
 
@@ -218,8 +220,8 @@ def train(
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
     print(f"Best validation metrics:")
     print(f"  Validation loss: {best_val_loss:.4f}")
-    print(f"  Longitudinal error: {best_lateral_error:.4f}")
-    print(f"  Lateral error: {best_lateral_error:.4f}")
+    print(f"  Longitudinal error: {best_longitudinal_error:.4f}")  # FIXED
+    print(f"  Lateral error: {best_lateral_error:.4f}")            # FIXED
 
 
 if __name__ == "__main__":
@@ -233,7 +235,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--batch_size", type=int, default=128, help="Batch size")
     parser.add_argument("--seed", type=int, default=2024, help="Random seed")
-    parser.add_argument("--patience", type=int, default=15, help="Early stopping patience")
+    parser.add_argument("--patience", type=int, default=20, help="Early stopping patience")
 
     # Optional: additional model hyperparameters
     # parser.add_argument("--hidden_size", type=int, default=256)
