@@ -61,19 +61,36 @@ def train(
     model = model.to(device)
     model.train()
 
-    # Load road data with track boundaries and waypoints
-    train_data = load_data(
-        "drive_data/train", 
-        shuffle=True, 
-        batch_size=batch_size, 
-        num_workers=2
-    )
-    val_data = load_data(
-        "drive_data/val", 
-        shuffle=False, 
-        batch_size=batch_size, 
-        num_workers=2
-    )
+
+    # ChatGPT 4o-mini - Load road data depending on model type
+    if model_name == "vit_planner":
+        # Image-based planner dataset
+        train_data = load_data(
+            "drive_data/train", 
+            shuffle=True, 
+            batch_size=batch_size, 
+            num_workers=2
+        )
+        val_data = load_data(
+            "drive_data/val", 
+            shuffle=False, 
+            batch_size=batch_size, 
+            num_workers=2
+        )
+    else:
+        # Track boundary-based planners
+        train_data = load_data(
+            "drive_data/train", 
+            shuffle=True, 
+            batch_size=batch_size, 
+            num_workers=2
+        )
+        val_data = load_data(
+            "drive_data/val", 
+            shuffle=False, 
+            batch_size=batch_size, 
+            num_workers=2
+        )
 
     # create loss function and optimizer - USE MSE NOT RMSE
     loss_func = nn.L1Loss()#nn.MSELoss()#RMSELoss()#
@@ -110,9 +127,15 @@ def train(
             track_right = batch['track_right'].to(device)
             waypoints_gt = batch['waypoints'].to(device)
             waypoints_mask = batch['waypoints_mask'].to(device)
-            
-            # Forward pass
-            waypoints_pred = model(track_left=track_left, track_right=track_right)
+
+            # ChatGPT 4o-mini
+            if model_name == "vit_planner":
+                image = batch["image"].to(device)
+                waypoints_pred = model(image=image)
+            else:
+                track_left = batch["track_left"].to(device)
+                track_right = batch["track_right"].to(device)
+                waypoints_pred = model(track_left=track_left, track_right=track_right)
             
             # Calculate loss (only on valid waypoints)
             # Expand mask to match waypoint dimensions: (B, n_waypoints) -> (B, n_waypoints, 2)
@@ -140,8 +163,14 @@ def train(
                 waypoints_gt = batch['waypoints'].to(device)
                 waypoints_mask = batch['waypoints_mask'].to(device)
                 
-                # Forward pass
-                waypoints_pred = model(track_left=track_left, track_right=track_right)
+                # ChatGPT 4o-mini - Forward pass
+                if model_name == "vit_planner":
+                    image = batch["image"].to(device)
+                    waypoints_pred = model(image=image)
+                else:
+                    track_left = batch["track_left"].to(device)
+                    track_right = batch["track_right"].to(device)
+                    waypoints_pred = model(track_left=track_left, track_right=track_right)
                 
                 # Calculate loss
                 mask = waypoints_mask.unsqueeze(-1).expand_as(waypoints_pred)
@@ -232,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, required=True, 
                         choices=["mlp_planner", "transformer_planner", "vit_planner"],
                         help="Model to train")
-    parser.add_argument("--num_epoch", type=int, default=100, help="Number of epochs")
+    parser.add_argument("--num_epoch", type=int, default=50, help="Number of epochs")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--batch_size", type=int, default=128, help="Batch size")
     parser.add_argument("--seed", type=int, default=2024, help="Random seed")
