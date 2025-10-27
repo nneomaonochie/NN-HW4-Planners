@@ -30,13 +30,15 @@ class RMSELoss(nn.Module):
         return torch.sqrt(self.mse(y_pred, y_true))
 
 
+#Claude Sonnet 4.5
 def train(
     exp_dir: str = "logs",
     model_name: str = "mlp_planner",
-    num_epoch: int = 50,
+    num_epoch: int = 100,
     lr: float = 1e-3,
     batch_size: int = 128,
     seed: int = 2024,
+    patience: int = 15,  # Early stopping patience
     **kwargs,
 ):
     if torch.cuda.is_available():
@@ -73,10 +75,27 @@ def train(
     )
 
     # create loss function and optimizer
-    loss_func = RMSELoss() # sqrt to get RMSE if this flops
+    loss_func = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    
+    # Cosine Annealing Learning Rate Scheduler
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, 
+        T_max=num_epoch,  # Maximum number of iterations
+        eta_min=1e-6      # Minimum learning rate
+    )
+
+    # Early stopping variables
+    best_val_loss = float('inf')
+    best_lateral_error = float('inf')
+    patience_counter = 0
+    best_model_state = None
 
     global_step = 0
+
+    print(f"Starting training with learning rate: {lr}")
+    print(f"Early stopping patience: {patience} epochs")
+    print(f"Using Cosine Annealing LR scheduler")
 
     # training loop
     for epoch in range(num_epoch):
@@ -137,26 +156,58 @@ def train(
                 lat_error = lat_error[waypoints_mask].mean()
                 val_metrics["lateral_error"].append(lat_error.item())
 
-        # Log metrics to tensorboard
+        # Calculate epoch metrics
         epoch_train_loss = torch.as_tensor(metrics["train_loss"]).mean()
         epoch_val_loss = torch.as_tensor(val_metrics["val_loss"]).mean()
         epoch_long_error = torch.as_tensor(val_metrics["longitudinal_error"]).mean()
         epoch_lat_error = torch.as_tensor(val_metrics["lateral_error"]).mean()
 
+        # Get current learning rate
+        current_lr = optimizer.param_groups[0]['lr']
+
+        # Log metrics to tensorboard
         logger.add_scalar("train_loss", epoch_train_loss, global_step)
         logger.add_scalar("val_loss", epoch_val_loss, global_step)
         logger.add_scalar("longitudinal_error", epoch_long_error, global_step)
         logger.add_scalar("lateral_error", epoch_lat_error, global_step)
+        logger.add_scalar("learning_rate", current_lr, global_step)
 
-        # Print progress on first, last, and every 10th epoch
-        if epoch == 0 or epoch == num_epoch - 1 or (epoch + 1) % 10 == 0:
+        # Early stopping logic - track lateral error since that's your main concern
+        if epoch_lat_error < best_lateral_error:
+            best_lateral_error = epoch_lat_error
+            best_val_loss = epoch_val_loss
+            patience_counter = 0
+            # Save best model state
+            best_model_state = model.state_dict().copy()
+            print(f"✓ New best lateral error: {best_lateral_error:.4f}")
+        else:
+            patience_counter += 1
+
+        # Print progress on first, last, every 10th epoch, or when finding best model
+        if epoch == 0 or epoch == num_epoch - 1 or (epoch + 1) % 10 == 0 or patience_counter == 0:
             print(
-                f"Epoch {epoch + 1:2d} / {num_epoch:2d}: "
+                f"Epoch {epoch + 1:3d} / {num_epoch:3d}: "
                 f"train_loss={epoch_train_loss:.4f} "
                 f"val_loss={epoch_val_loss:.4f} "
-                f"long_error={epoch_long_error:.4f} "
-                f"lat_error={epoch_lat_error:.4f}"
+                f"long={epoch_long_error:.4f} "
+                f"lat={epoch_lat_error:.4f} "
+                f"lr={current_lr:.6f} "
+                f"patience={patience_counter}/{patience}"
             )
+
+        # Check early stopping
+        if patience_counter >= patience:
+            print(f"\n⚠ Early stopping triggered after {epoch + 1} epochs")
+            print(f"Best lateral error: {best_lateral_error:.4f}")
+            break
+
+        # Step the learning rate scheduler
+        scheduler.step()
+
+    # Load best model state
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+        print(f"\n✓ Loaded best model with lateral error: {best_lateral_error:.4f}")
 
     # Save model for grading
     save_model(model)
@@ -165,9 +216,10 @@ def train(
     torch.save(model.state_dict(), log_dir / f"{model_name}.th")
     print(f"\nTraining complete!")
     print(f"Model saved to {log_dir / f'{model_name}.th'}")
-    print(f"Final metrics:")
-    print(f"  Longitudinal error: {epoch_long_error:.4f}")
-    print(f"  Lateral error: {epoch_lat_error:.4f}")
+    print(f"Best validation metrics:")
+    print(f"  Validation loss: {best_val_loss:.4f}")
+    print(f"  Longitudinal error: {best_lateral_error:.4f}")
+    print(f"  Lateral error: {best_lateral_error:.4f}")
 
 
 if __name__ == "__main__":
@@ -177,10 +229,11 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, required=True, 
                         choices=["mlp_planner", "transformer_planner", "vit_planner"],
                         help="Model to train")
-    parser.add_argument("--num_epoch", type=int, default=50, help="Number of epochs")
+    parser.add_argument("--num_epoch", type=int, default=100, help="Number of epochs")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--batch_size", type=int, default=128, help="Batch size")
     parser.add_argument("--seed", type=int, default=2024, help="Random seed")
+    parser.add_argument("--patience", type=int, default=15, help="Early stopping patience")
 
     # Optional: additional model hyperparameters
     # parser.add_argument("--hidden_size", type=int, default=256)
@@ -189,137 +242,3 @@ if __name__ == "__main__":
     # Pass all arguments to train
     args = parser.parse_args()
     train(**vars(args))
-
-'''
-import argparse
-from datetime import datetime
-from pathlib import Path
-
-import numpy as np
-import torch
-import torch.utils.tensorboard as tb
-
-import torch.optim
-
-from .models import load_model, save_model
-from .utils import load_data
-
-
-def train(
-    exp_dir: str = "logs",
-    model_name: str = "linear",
-    num_epoch: int = 50,
-    lr: float = 1e-3,
-    batch_size: int = 128,
-    seed: int = 2024,
-    **kwargs,
-):
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    else:
-        print("CUDA not available, using CPU")
-        device = torch.device("cpu")
-
-    # set random seed so each run is deterministic
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-    # directory with timestamp to save tensorboard logs and model checkpoints
-    log_dir = Path(exp_dir) / f"{model_name}_{datetime.now().strftime('%m%d_%H%M%S')}"
-    logger = tb.SummaryWriter(log_dir)
-
-    # note: the grader uses default kwargs, you'll have to bake them in for the final submission
-    model = load_model(model_name, **kwargs)
-    model = model.to(device)
-    model.train()
-
-    train_data = load_data("data/train", shuffle=True, batch_size=batch_size, num_workers=2)
-    val_data = load_data("data/val", shuffle=False)
-
-    # create loss function and optimizer
-    loss_func = nn.RMSELoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr, momentum=0.9)
-
-    global_step = 0
-
-
-    # training loop
-    for epoch in range(num_epoch):
-        metrics = {"train_loss": [], "val_loss": []}
-
-        for img, label in train_data:
-            img, label = img.to(device), label.to(device)
-
-            # pseudocode for steps come form ChatGPT 4o-mini
-            train_results = model.forward(img) # move forward
-            train_losses = loss_func.forward(train_results, label) # calculate loss
-            
-
-            # ChatGPT 4o-mini
-            optimizer.zero_grad()     # 1. clear old gradients
-            train_losses.backward()   # 2. compute gradients
-            optimizer.step()          # 3. update weights
-
-            # checking accuracy for this epoch - ChatGPT 4o-mini
-
-
-            metrics["train_loss"].append(train_losses.item())
-
-            #raise NotImplementedError("Training step not implemented")
-
-            global_step += 1
-
-        # torch.inference_mode calls model.eval() and disables gradient computation
-        with torch.inference_mode():
-            for img, label in val_data:
-                img, label = img.to(device), label.to(device)
-
-                
-                val_results = model.forward(img)
-                
-                # ChatGPT 4o-mini
-                val_loss = loss_func(val_results, label).item()
-                metrics["val_loss"].append(val_loss)
-
-        # log average train and val accuracy to tensorboard
-        epoch_train_loss = torch.as_tensor(metrics["train_loss"]).mean()
-        epoch_val_loss = torch.as_tensor(metrics["val_loss"]).mean()
-
-        logger.add_scalar("train_loss", epoch_train_loss, global_step)
-        logger.add_scalar("val_loss", epoch_val_loss, global_step)
-
-        # print on first, last, every 10th epoch
-        if epoch == 0 or epoch == num_epoch - 1 or (epoch + 1) % 10 == 0:
-            print(
-                f"Epoch {epoch + 1:2d} / {num_epoch:2d}: "
-                f"train_acc={epoch_train_acc:.4f} "
-                f"val_acc={epoch_val_acc:.4f}"
-            )
-
-
-    print('################################################################3')
-    # save and overwrite the model in the root directory for grading
-    save_model(model)
-    print('--------------------------------------------------------------------')
-    # save a copy of model weights in the log directory
-    torch.save(model.state_dict(), log_dir / f"{model_name}.th")
-    print(f"Model saved to {log_dir / f'{model_name}.th'}")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--exp_dir", type=str, default="logs")
-    parser.add_argument("--model_name", type=str, required=True)
-    parser.add_argument("--num_epoch", type=int, default=50)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--seed", type=int, default=2024)
-
-
-    # optional: additional model hyperparamters
-    # parser.add_argument("--num_layers", type=int, default=3)
-
-    # pass all arguments to train
-    train(**vars(parser.parse_args()))
-'''
-print("Time to train")
