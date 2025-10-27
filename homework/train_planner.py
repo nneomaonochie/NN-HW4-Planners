@@ -20,6 +20,15 @@ import torch.utils.tensorboard as tb
 from .models import load_model, save_model
 from .datasets.road_dataset import load_data
 
+# ChatGPT 4.0-mini
+class RMSELoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mse = nn.MSELoss()
+
+    def forward(self, y_pred, y_true):
+        return torch.sqrt(self.mse(y_pred, y_true))
+
 
 def train(
     exp_dir: str = "logs",
@@ -64,7 +73,7 @@ def train(
     )
 
     # create loss function and optimizer
-    loss_func = nn.RMSELoss()
+    loss_func = RMSELoss() # sqrt to get RMSE if this flops
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     global_step = 0
