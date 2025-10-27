@@ -93,6 +93,7 @@ class MLPPlanner(nn.Module):
         return waypoints
 
 
+# Claude Sonnet 4.5
 class TransformerPlanner(nn.Module):
     def __init__(
         self,
@@ -214,7 +215,7 @@ class PatchEmbedding(nn.Module):
         # Linear projection
         return self.projection(x)
     
-
+# Claude Sonnet 4.5
 class TransformerBlock(nn.Module):
     def __init__(self, embed_dim: int = 256, num_heads: int = 8, mlp_ratio: float = 4.0, dropout: float = 0.1):
         """
@@ -280,6 +281,8 @@ class TransformerBlock(nn.Module):
         x = x + self.mlp(self.norm2(x))
         
         return x
+
+
 
 # Claude Sonnet 4.5
 class ViTPlanner(nn.Module):
@@ -364,69 +367,7 @@ class ViTPlanner(nn.Module):
         waypoints = out.view(B, self.n_waypoints, 2)  # (B, 3, 2)
         
         return waypoints
-'''
-class ViTPlanner(torch.nn.Module):
-    def __init__(
-        self,
-        n_waypoints: int = 3,
-    ):
-        """
-        Vision Transformer (ViT) based planner that predicts waypoints from images.
 
-        Args:
-            n_waypoints (int): number of waypoints to predict
-
-        Hint - you can add more arguments to the constructor such as:
-            patch_size: int, size of image patches
-            embed_dim: int, embedding dimension
-            num_layers: int, number of transformer layers
-            num_heads: int, number of attention heads
-
-        Note: You can use the provided PatchEmbedding and TransformerBlock classes.
-        The input images are of size (96, 128).
-
-        Hint: A typical ViT architecture consists of:
-        1. Patch embedding layer to convert image into sequence of patches
-        2. Positional embeddings (learnable parameters) added to patch embeddings
-        3. Multiple transformer encoder blocks
-        4. Final normalization layer
-        5. Output projection to predict waypoints
-
-        Hint: For this task, you can either:
-        - Use a classification token ([CLS]) approach like in standard ViT as global image representation
-        - Use learned query embeddings (similar to TransformerPlanner)
-        - Average pool over all patch features
-        """
-        super().__init__()
-
-        self.n_waypoints = n_waypoints
-
-        self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN), persistent=False)
-        self.register_buffer("input_std", torch.as_tensor(INPUT_STD), persistent=False)
-
-        raise NotImplementedError("ViTPlanner.__init__() is not implemented")
-
-    def forward(self, image: torch.Tensor, **kwargs) -> torch.Tensor:
-        """
-        Args:
-            image (torch.FloatTensor): shape (b, 3, 96, 128) and vals in [0, 1]
-
-        Returns:
-            torch.FloatTensor: future waypoints with shape (b, n_waypoints, 2)
-
-        Hint: The typical forward pass consists of:
-        1. Normalize input image
-        2. Convert image to patch embeddings
-        3. Add positional embeddings
-        4. Pass through transformer blocks
-        5. Extract features for prediction (e.g., [CLS] token or average pooling)
-        6. Project to waypoint coordinates
-        """
-        x = image
-        x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
-
-        raise NotImplementedError("ViTPlanner.forward() is not implemented")
-'''
 
 MODEL_FACTORY = {
     "mlp_planner": MLPPlanner,

@@ -7,7 +7,7 @@ Usage:
     python3 -m homework.train_planner --model_name mlp_planner --num_epoch 50 --lr 1e-3
 """
 
-#Claude Sonnet 4.5
+# everything below is generated with Claude Sonnet 4.5 unless stated otherwise
 import argparse
 from datetime import datetime
 from pathlib import Path
